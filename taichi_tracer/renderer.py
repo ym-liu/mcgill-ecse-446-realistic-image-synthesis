@@ -195,15 +195,24 @@ class A2Renderer:
 
     @ti.kernel
     def render(self):
+        # increment iteration counter
+        self.iter_counter[None] += 1
+
+        # for all pixels in the image plane
         for x, y in ti.ndrange(self.width, self.height):
             # TODO: Change the naive renderer to do progressive rendering
             """
             - call generate_ray with jitter = True
             - progressively accumulate the pixel values in each canvas [x, y] position
             """
-            primary_ray = self.camera.generate_ray(x, y)
-            color = self.shade_ray(primary_ray)
-            self.canvas[x, y] = color
+            # generate and shade ray in a random location within the pixel
+            random_ray = self.camera.generate_ray(x, y, True)
+
+            # progressively accumulate the pixel values in each canvas [x, y] position
+            color = self.shade_ray(random_ray)
+            self.canvas[x, y] += (color - self.canvas[x, y]) / tm.vec3(
+                self.iter_counter[None]
+            )
 
     def reset(self):
         self.canvas.fill(0.0)
