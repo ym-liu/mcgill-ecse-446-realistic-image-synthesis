@@ -18,19 +18,17 @@ class Environment:
         self.image.from_numpy(image)
 
         self.intensity = ti.field(dtype=float, shape=())
-        self.set_intensity(1.)
-
+        self.set_intensity(1.0)
 
     def set_intensity(self, intensity: float) -> None:
         self.intensity[None] = intensity
 
-
     @ti.func
     def query_ray(self, ray: Ray) -> tm.vec3:
 
-        #TODO: Implement equi-rectangular spherical parametrization
+        # TODO: Implement equi-rectangular spherical parametrization
 
-        '''
+        """
         - compute u and v according to the handout
         - get the x, and y coordinate from the uv coordinates
             - hint: you will need to multiply x and y by their resolution
@@ -38,6 +36,15 @@ class Environment:
             - y = v * y_resolution
         - return the environment map query at [x, y]
             - self.image[x, y]
-        '''
+        """
 
-        pass
+        # compute u and v according to the handout
+        u = 0.5 + (tm.atan2(ray.direction.z, ray.direction.x)) / (2 * tm.pi)
+        v = 0.5 + (tm.asin(ray.direction.y)) / tm.pi
+
+        # get the x, and y coordinate from the uv coordinates
+        x = u * self.x_resolution
+        y = v * self.y_resolution
+
+        # return the environment map query at [x, y]
+        return self.image[x, y]
