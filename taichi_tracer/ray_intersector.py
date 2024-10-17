@@ -95,7 +95,7 @@ class RayIntersector(ABC):
                         normal_1 = -1 * normal_1
                         normal_2 = -1 * normal_2
                     normal = tm.normalize(
-                        (u * normal_0) + (v * normal_1) + (w * normal_2)
+                        (w * normal_0) + (u * normal_1) + (v * normal_2)
                     )
 
         # populate and return HitData
