@@ -220,7 +220,15 @@ class A2Renderer:
 
     @ti.func
     def shade_ray(self, ray: Ray) -> tm.vec3:
+        # get hit data from the ray
         hit_data = self.scene_data.ray_intersector.query_ray(ray)
+
+        # get surface-ray intersection from hit_data
+        x = tm.vec3(0.0)  # surface-ray intersection
+        if hit_data.is_hit:
+            x = ray.origin + (hit_data.distance * ray.direction)
+
+        # initialize color vector
         color = tm.vec3(0.0)
 
         """
@@ -230,23 +238,27 @@ class A2Renderer:
 
         # TODO: Implement Uniform Sampling
         if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
+
+            # if our ray hits an object
             if hit_data.is_hit:
                 # generate uniformly-sampled ray direction w_i = (w_x, w_y, w_z)
-                w_i = UniformSampler.sample_direction()
+                w_i = tm.normalize(UniformSampler.sample_direction())
 
                 # compute environment light L_e
-                L_e = self.scene_data.environment.query_ray(ray)
+                L_e = self.scene_data.environment.query_ray(
+                    Ray(origin=x, direction=hit_data.normal)
+                )
 
                 # perform occlusion check
-                V = 1  # visibility function
-                secondary_ray = Ray()  # compute the opposite of light ray
-                secondary_ray.origin = ray.origin + (hit_data.normal * self.RAY_OFFSET)
-                secondary_ray.direction = -w_i
+                V = 0  # visibility function
+                secondary_ray = Ray()  # construct ray from the surface to the light
+                secondary_ray.origin = x + (hit_data.normal * self.RAY_OFFSET)
+                secondary_ray.direction = -w_i  # direction opposite of light ray
                 secondary_ray_hit_data = self.scene_data.ray_intersector.query_ray(
                     secondary_ray
                 )
                 if secondary_ray_hit_data.is_hit:  # if hit, then occluded
-                    V = 0
+                    V = 1
 
                 # compute the BRDF
                 w_o = -ray.direction  # compute the opposite of eye ray
@@ -262,6 +274,10 @@ class A2Renderer:
                 color += (
                     L_e * V * f_r * tm.max(tm.dot(hit_data.normal, w_i), 0.0)
                 ) / UniformSampler.evaluate_probability()
+
+            # if our ray doesnt hit an object then it's the environment
+            else:
+                color = self.scene_data.environment.query_ray(ray)
 
         # TODO: Implement BRDF Sampling
         elif self.sample_mode[None] == int(self.SampleMode.BRDF):

@@ -18,13 +18,13 @@ class UniformSampler:
     @ti.func
     def sample_direction() -> tm.vec3:
         # generate 2 canonical random variables
-        rand_xi1 = ti.random()
-        rand_xi2 = ti.random()
+        rand_var1 = ti.random()
+        rand_var2 = ti.random()
 
         # generate uniformly-sampled ray direction w_i = (w_x, w_y, w_z)
-        w_z = (2 * rand_xi1) - 1
+        w_z = (2 * rand_var1) - 1
         r = tm.sqrt(1 - (w_z * w_z))
-        phi = 2 * tm.pi * rand_xi2
+        phi = 2 * tm.pi * rand_var2
 
         w_x = r * tm.cos(phi)
         w_y = r * tm.sin(phi)
@@ -47,8 +47,8 @@ class UniformSampler:
 
         # compute the BRDF
         f_r = tm.vec3(0.0)
-        alpha = material.Ns  # phong exponent
-        rho = material.Kd  # reflectance (r,g,b)
+        alpha = material.Ns  # phong exponent / specular coefficient
+        rho = material.Kd  # reflectance (r,g,b) / diffuse color
         if alpha == 1:  # if brdf diffuse
             f_r = rho / tm.pi
         else:  # if brdf phong
