@@ -232,14 +232,28 @@ class A2Renderer:
         x = tm.vec3(0.0)  # surface-ray intersection
         if hit_data.is_hit:
             x = ray.origin + (hit_data.distance * ray.direction)
+        # get material from hit_data
+        material = self.scene_data.material_library.materials[hit_data.material_id]
 
         # initialize color vector
         color = tm.vec3(0.0)
 
         # if our ray hits an object
         if hit_data.is_hit:
-            # generate uniformly-sampled ray direction w_i = (w_x, w_y, w_z)
-            w_i = tm.normalize(UniformSampler.sample_direction())
+
+            # compute the direction opposite of eye ray
+            w_o = -ray.direction
+
+            # sample direction
+            w_i = tm.vec3(0.0)
+            if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
+                # generate uniformly-sampled ray direction w_i = (w_x, w_y, w_z)
+                w_i = UniformSampler.sample_direction()
+            elif self.sample_mode[None] == int(self.SampleMode.BRDF):
+                # generate brdf importance-sampled ray direction w_i = (w_x, w_y, w_z)
+                w_i = BRDF.sample_direction(material, w_o, hit_data.normal)
+            elif self.sample_mode[None] == int(self.SampleMode.MICROFACET):
+                pass
 
             # compute environment light L_e
             L_e = self.scene_data.environment.query_ray(
@@ -260,9 +274,8 @@ class A2Renderer:
             # TODO: Implement Uniform Sampling
             if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
                 # compute the BRDF
-                w_o = -ray.direction  # compute the opposite of eye ray
                 f_r = UniformSampler.evaluate_brdf(  # compute the BRDF
-                    self.scene_data.material_library.materials[hit_data.material_id],
+                    material,
                     w_o,
                     w_i,
                     hit_data.normal,
@@ -277,9 +290,8 @@ class A2Renderer:
             # TODO: Implement BRDF Sampling
             elif self.sample_mode[None] == int(self.SampleMode.BRDF):
                 # compute the BRDF
-                w_o = -ray.direction  # compute the opposite of eye ray
                 f_r = BRDF.evaluate_brdf(  # compute the BRDF
-                    self.scene_data.material_library.materials[hit_data.material_id],
+                    material,
                     w_o,
                     w_i,
                     hit_data.normal,
@@ -287,7 +299,7 @@ class A2Renderer:
 
                 # compute the probability
                 pdf_brdf = BRDF.evaluate_brdf(
-                    self.scene_data.material_library.materials[hit_data.material_id],
+                    material,
                     w_o,
                     w_i,
                     hit_data.normal,
