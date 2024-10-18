@@ -69,21 +69,67 @@ class BRDF:
     @staticmethod
     @ti.func
     def sample_direction(material: Material, w_o: tm.vec3, normal: tm.vec3) -> tm.vec3:
-        pass
+        # generate 2 canonical random variables
+        rand_var1 = ti.random()
+        rand_var2 = ti.random()
+
+        # generate BRDF importance-sampled ray direction w_i = (w_x, w_y, w_z)
+        w_z = tm.pow(rand_var1, 1 / (material.Ns + 1))
+        r = tm.sqrt(1 - (w_z * w_z))
+        phi = 2 * tm.pi * rand_var2
+
+        w_x = r * tm.cos(phi)
+        w_y = r * tm.sin(phi)
+
+        # return sampled ray direction
+        return tm.vec3([w_x, w_y, w_z])
 
     @staticmethod
     @ti.func
     def evaluate_probability(
         material: Material, w_o: tm.vec3, w_i: tm.vec3, normal: tm.vec3
     ) -> float:
-        pass
+        # initialize probabiblity
+        pdf_brdf = 0.0
+
+        # get material specular coefficient
+        alpha = material.Ns  # phong exponent / specular coefficient
+
+        # compute the reflected view-direction w_r
+        w_r = (2 * (tm.dot(normal, w_o)) * normal) - w_o
+
+        # compute the probability
+        if alpha == 1:  # if brdf diffuse
+            pdf_brdf = (1 / tm.pi) * tm.max(0, tm.dot(normal, w_i))
+        else:  # if brdf phong
+            pdf_brdf = ((alpha + 1) / (2 * tm.pi)) * tm.max(
+                0.0, tm.pow(tm.dot(w_r, w_i), alpha)
+            )
+
+        # return the probability
+        return pdf_brdf
 
     @staticmethod
     @ti.func
     def evaluate_brdf(
         material: Material, w_o: tm.vec3, w_i: tm.vec3, normal: tm.vec3
     ) -> tm.vec3:
-        pass
+        # compute the reflected view-direction w_r
+        w_r = (2 * (tm.dot(normal, w_o)) * normal) - w_o
+
+        # compute the BRDF
+        f_r = tm.vec3(0.0)
+        alpha = material.Ns  # phong exponent / specular coefficient
+        rho = material.Kd  # reflectance (r,g,b) / diffuse color
+        if alpha == 1:  # if brdf diffuse
+            f_r = rho / tm.pi
+        else:  # if brdf phong
+            f_r = ((rho * (alpha + 1)) / (2 * tm.pi)) * tm.max(
+                0.0, tm.pow(tm.dot(w_r, w_i), alpha)
+            )
+
+        # return the BRDF
+        return f_r
 
     @staticmethod
     @ti.func

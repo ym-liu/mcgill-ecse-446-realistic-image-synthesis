@@ -220,6 +220,11 @@ class A2Renderer:
 
     @ti.func
     def shade_ray(self, ray: Ray) -> tm.vec3:
+        """
+        You can change the structure of the shade ray function however you want as there will be computations that are the same for all 3 methods
+        You can have your branching logic anywhere in the code
+        """
+
         # get hit data from the ray
         hit_data = self.scene_data.ray_intersector.query_ray(ray)
 
@@ -231,35 +236,29 @@ class A2Renderer:
         # initialize color vector
         color = tm.vec3(0.0)
 
-        """
-        You can change the structure of the shade ray function however you want as there will be computations that are the same for all 3 methods
-        You can have your branching logic anywhere in the code
-        """
+        # if our ray hits an object
+        if hit_data.is_hit:
+            # generate uniformly-sampled ray direction w_i = (w_x, w_y, w_z)
+            w_i = tm.normalize(UniformSampler.sample_direction())
 
-        # TODO: Implement Uniform Sampling
-        if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
+            # compute environment light L_e
+            L_e = self.scene_data.environment.query_ray(
+                Ray(origin=x, direction=hit_data.normal)
+            )
 
-            # if our ray hits an object
-            if hit_data.is_hit:
-                # generate uniformly-sampled ray direction w_i = (w_x, w_y, w_z)
-                w_i = tm.normalize(UniformSampler.sample_direction())
+            # perform occlusion check
+            V = 0  # visibility function
+            secondary_ray = Ray()  # construct ray from the surface to the light
+            secondary_ray.origin = x + (hit_data.normal * self.RAY_OFFSET)
+            secondary_ray.direction = -w_i  # direction opposite of light ray
+            secondary_ray_hit_data = self.scene_data.ray_intersector.query_ray(
+                secondary_ray
+            )
+            if secondary_ray_hit_data.is_hit:  # if hit, then occluded
+                V = 1
 
-                # compute environment light L_e
-                L_e = self.scene_data.environment.query_ray(
-                    Ray(origin=x, direction=hit_data.normal)
-                )
-
-                # perform occlusion check
-                V = 0  # visibility function
-                secondary_ray = Ray()  # construct ray from the surface to the light
-                secondary_ray.origin = x + (hit_data.normal * self.RAY_OFFSET)
-                secondary_ray.direction = -w_i  # direction opposite of light ray
-                secondary_ray_hit_data = self.scene_data.ray_intersector.query_ray(
-                    secondary_ray
-                )
-                if secondary_ray_hit_data.is_hit:  # if hit, then occluded
-                    V = 1
-
+            # TODO: Implement Uniform Sampling
+            if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
                 # compute the BRDF
                 w_o = -ray.direction  # compute the opposite of eye ray
                 f_r = UniformSampler.evaluate_brdf(  # compute the BRDF
@@ -275,17 +274,38 @@ class A2Renderer:
                     L_e * V * f_r * tm.max(tm.dot(hit_data.normal, w_i), 0.0)
                 ) / UniformSampler.evaluate_probability()
 
-            # if our ray doesnt hit an object then it's the environment
-            else:
-                color = self.scene_data.environment.query_ray(ray)
+            # TODO: Implement BRDF Sampling
+            elif self.sample_mode[None] == int(self.SampleMode.BRDF):
+                # compute the BRDF
+                w_o = -ray.direction  # compute the opposite of eye ray
+                f_r = BRDF.evaluate_brdf(  # compute the BRDF
+                    self.scene_data.material_library.materials[hit_data.material_id],
+                    w_o,
+                    w_i,
+                    hit_data.normal,
+                )
 
-        # TODO: Implement BRDF Sampling
-        elif self.sample_mode[None] == int(self.SampleMode.BRDF):
-            pass
+                # compute the probability
+                pdf_brdf = BRDF.evaluate_brdf(
+                    self.scene_data.material_library.materials[hit_data.material_id],
+                    w_o,
+                    w_i,
+                    hit_data.normal,
+                )
 
-        # TODO: 546 Deliverable Only
-        # Implement Microfacet BRDF Sampling
-        elif self.sample_mode[None] == int(self.SampleMode.MICROFACET):
-            pass
+                # compute color using monte carlo integration
+                # trace sampled shadow ray
+                color += (
+                    L_e * V * f_r * tm.max(tm.dot(hit_data.normal, w_i), 0.0)
+                ) / pdf_brdf
+
+            # TODO: 546 Deliverable Only
+            # Implement Microfacet BRDF Sampling
+            elif self.sample_mode[None] == int(self.SampleMode.MICROFACET):
+                pass
+
+        # if our ray doesnt hit an object then it's the environment
+        else:
+            color = self.scene_data.environment.query_ray(ray)
 
         return color
