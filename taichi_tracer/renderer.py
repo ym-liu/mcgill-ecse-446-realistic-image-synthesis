@@ -220,6 +220,7 @@ class A2Renderer:
 
     @ti.func
     def shade_ray(self, ray: Ray) -> tm.vec3:
+        hit_data = self.scene_data.ray_intersector.query_ray(ray)
         color = tm.vec3(0.0)
 
         """
@@ -229,7 +230,38 @@ class A2Renderer:
 
         # TODO: Implement Uniform Sampling
         if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
-            pass
+            if hit_data.is_hit:
+                # generate uniformly-sampled ray direction w_i = (w_x, w_y, w_z)
+                w_i = UniformSampler.sample_direction()
+
+                # compute environment light L_e
+                L_e = self.scene_data.environment.query_ray(ray)
+
+                # perform occlusion check
+                V = 1  # visibility function
+                secondary_ray = Ray()  # compute the opposite of light ray
+                secondary_ray.origin = ray.origin + (hit_data.normal * self.RAY_OFFSET)
+                secondary_ray.direction = -w_i
+                secondary_ray_hit_data = self.scene_data.ray_intersector.query_ray(
+                    secondary_ray
+                )
+                if secondary_ray_hit_data.is_hit:  # if hit, then occluded
+                    V = 0
+
+                # compute the BRDF
+                w_o = -ray.direction  # compute the opposite of eye ray
+                f_r = UniformSampler.evaluate_brdf(  # compute the BRDF
+                    self.scene_data.material_library.materials[hit_data.material_id],
+                    w_o,
+                    w_i,
+                    hit_data.normal,
+                )
+
+                # compute color using monte carlo integration
+                # trace sampled shadow ray
+                color += (
+                    L_e * V * f_r * tm.max(tm.dot(hit_data.normal, w_i), 0.0)
+                ) / UniformSampler.evaluate_probability()
 
         # TODO: Implement BRDF Sampling
         elif self.sample_mode[None] == int(self.SampleMode.BRDF):

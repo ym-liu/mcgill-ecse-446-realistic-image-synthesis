@@ -43,8 +43,8 @@ class Environment:
         v = 0.5 + (tm.asin(ray.direction.y)) / tm.pi
 
         # get the x, and y coordinate from the uv coordinates
-        x = u * self.x_resolution
-        y = v * self.y_resolution
+        x = int(u * self.x_resolution)
+        y = int(v * self.y_resolution)
 
         # return the environment map query at [x, y]
         return self.image[x, y]
