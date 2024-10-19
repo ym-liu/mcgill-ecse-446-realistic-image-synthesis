@@ -256,9 +256,13 @@ class A2Renderer:
                 pass
 
             # compute environment light L_e
-            L_e = self.scene_data.environment.query_ray(
-                Ray(origin=x, direction=hit_data.normal)
-            )
+            L_e = tm.vec3(0.0)
+            envr_light_ray = Ray(origin=x, direction=w_i)
+            if (
+                self.scene_data.ray_intersector.query_ray(envr_light_ray).is_hit
+                == False
+            ):
+                L_e = self.scene_data.environment.query_ray(envr_light_ray)
 
             # perform occlusion check
             V = 0  # visibility function

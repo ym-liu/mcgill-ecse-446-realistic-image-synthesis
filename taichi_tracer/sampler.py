@@ -30,7 +30,7 @@ class UniformSampler:
         w_y = r * tm.sin(phi)
 
         # return sampled ray direction
-        return tm.vec3([w_x, w_y, w_z])
+        return tm.normalize(tm.vec3([w_x, w_y, w_z]))
 
     @staticmethod
     @ti.func
@@ -82,7 +82,7 @@ class BRDF:
         w_y = r * tm.sin(phi)
 
         # return sampled ray direction
-        return tm.vec3([w_x, w_y, w_z])
+        return tm.normalize(tm.vec3([w_x, w_y, w_z]))
 
     @staticmethod
     @ti.func
