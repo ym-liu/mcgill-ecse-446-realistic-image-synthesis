@@ -17,21 +17,17 @@ class Environment:
             n=3, dtype=float, shape=(self.x_resolution, self.y_resolution)
         )
 
-        # luminance env map             
+        # luminance env map
         # luminance = 0.2126*rgb.x + 0.7152*rgb.y + 0.0722*rgb.z
         self.image_scalar = ti.field(
             dtype=float, shape=(self.x_resolution, self.y_resolution)
         )
 
         # p(theta) marginal
-        self.marginal_ptheta = ti.field(
-            dtype=float, shape=(self.y_resolution)
-        )
+        self.marginal_ptheta = ti.field(dtype=float, shape=(self.y_resolution))
 
         # cdf of p(theta)
-        self.cdf_ptheta = ti.field(
-            dtype=float, shape=(self.y_resolution)
-        )
+        self.cdf_ptheta = ti.field(dtype=float, shape=(self.y_resolution))
 
         # p(phi | theta)
         self.conditional_p_phi_given_theta = ti.field(
@@ -46,17 +42,36 @@ class Environment:
         self.image.from_numpy(image)
 
         self.intensity = ti.field(dtype=float, shape=())
-        self.set_intensity(1.)
-
+        self.set_intensity(1.0)
 
     def set_intensity(self, intensity: float) -> None:
         self.intensity[None] = intensity
 
-
     @ti.func
     def query_ray(self, ray: Ray) -> tm.vec3:
-        #TODO: copy your A2 solution
-        pass
+
+        # TODO: Implement equi-rectangular spherical parametrization
+
+        """
+        - compute u and v according to the handout
+        - get the x, and y coordinate from the uv coordinates
+            - hint: you will need to multiply x and y by their resolution
+            - x = u * x_resolution
+            - y = v * y_resolution
+        - return the environment map query at [x, y]
+            - self.image[x, y]
+        """
+
+        # compute u and v according to the handout
+        u = 0.5 + (tm.atan2(ray.direction.z, ray.direction.x)) / (2 * tm.pi)
+        v = 0.5 + (tm.asin(ray.direction.y)) / tm.pi
+
+        # get the x, and y coordinate from the uv coordinates
+        x = int(u * self.x_resolution)
+        y = int(v * self.y_resolution)
+
+        # return the environment map query at [x, y]
+        return self.image[x, y]
 
     @ti.kernel
     def precompute_envmap(self):
@@ -64,7 +79,6 @@ class Environment:
         self.precompute_marginal_ptheta()
         self.precompute_conditional_p_phi_given_theta()
         self.precompute_cdfs()
-
 
     @ti.func
     def precompute_scalar(self):
@@ -103,7 +117,7 @@ class Environment:
     def sample_theta(self, u1: float) -> int:
         # TODO: 546 Deliverable Only
         # given a uniform random value, return the corresponding **index** of theta
-        # 
+        #
         # ==== THIS IS JUST AN EXAMPLE OF THE RETURN TYPE ===
         # === THIS IS NOT THE SOLUTION ===
         #
@@ -114,10 +128,10 @@ class Environment:
         return 0
 
     @ti.func
-    def sample_phi(self, theta: int, u2: float) -> int: 
+    def sample_phi(self, theta: int, u2: float) -> int:
         # TODO: 546 Deliverable Only
         # given a uniform random value, and theta, return the corresponding **index** of phi
-        # 
+        #
         # ==== THIS IS JUST AN EXAMPLE OF THE RETURN TYPE ===
         # === THIS IS NOT THE SOLUTION ===
         #
@@ -126,22 +140,21 @@ class Environment:
         #
         # placeholder
         return 0
-    
 
     @ti.func
     def importance_sample_envmap(self) -> tm.vec2:
-        
+
         u1 = ti.random()
         u2 = ti.random()
 
         sampled_theta = self.sample_theta(u1)
         sampled_phi = self.sample_phi(sampled_theta, u2)
-        
+
         # TODO: 546 Deliverable Only
 
         # Once you have found the sampled theta and sampled phi indices
         # You will need to interpolate them to their actual value
-        
+
         # Ex: if your theta cdf is [0.0, 0.5, 0.1]
         # for values theta         [1.0, 2.0, 3.0]
 
@@ -149,19 +162,17 @@ class Environment:
         # sampled_phi = 1.0
         # lerped_phi should be 1.5
         # since 0.25 is halfway between 0.0 and 0.5
-        
-        # Finally, return the normalized coordinates u and v 
+
+        # Finally, return the normalized coordinates u and v
         # u = (lerped_phi   / float(self.x_resolution))
         # v = (lerped_theta / float(self.y_resolution))
 
         # return tm.vec2([u, v])
-        
-        
-        
+
         # palceholder
-        return tm.vec2([0., 0.])
+        return tm.vec2([0.0, 0.0])
 
 
 @ti.func
 def lerp(x: float, a: float, b: float) -> float:
-    return ((1.0-x) * a) + (x * b)
+    return ((1.0 - x) * a) + (x * b)
