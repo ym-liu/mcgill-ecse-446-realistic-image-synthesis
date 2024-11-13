@@ -177,9 +177,9 @@ class MeshLightSampler:
         else:
             self.has_emissive_triangles = True
             self.n_emissive_triangles = len(emissive_triangle_ids)
-            emissive_triangle_ids = np.array(emissive_triangle_ids, dtype=int)
+            emissive_triangle_ids = np.array(emissive_triangle_ids, dtype=np.int32)
             self.emissive_triangle_ids = ti.field(
-                shape=(emissive_triangle_ids.shape[0]), dtype=int
+                shape=(emissive_triangle_ids.shape[0]), dtype=ti.i32
             )
             self.emissive_triangle_ids.from_numpy(emissive_triangle_ids)
 
