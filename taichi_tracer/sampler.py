@@ -61,19 +61,21 @@ class BRDF:
         w_x = r * tm.cos(phi)
         w_y = r * tm.sin(phi)
 
-        local_dir = tm.vec3([w_x, w_y, w_z])  # local direction in canonical orientation
+        local_dir = tm.normalize(
+            tm.vec3([w_x, w_y, w_z])
+        )  # local direction in canonical orientation
 
         # rotate local direction into world coord sys at shade point
         tangent = tm.normalize(tm.cross(w_o, normal))
         if tangent.norm() < 1e-7:  # if normal almost vertical, choose another
             tangent = tm.normalize(tm.cross(tm.vec3(1.0, 0.0, 0.0), normal))
-        bitangent = tm.cross(normal, tangent)
+        bitangent = tm.normalize(tm.cross(normal, tangent))
         world_dir = (
             local_dir.x * tangent + local_dir.y * bitangent + local_dir.z * normal
         )
 
         # return sampled ray direction
-        return tm.normalize(local_dir)
+        return tm.normalize(world_dir)
 
     @staticmethod
     @ti.func
@@ -116,7 +118,7 @@ class BRDF:
         f_r = tm.vec3(0.0)
         if alpha == 1:  # if brdf diffuse
             f_r = rho / tm.pi
-        else:  # if brdf phong
+        elif alpha > 1:  # if brdf phong
             f_r = ((rho * (alpha + 1)) / (2 * tm.pi)) * tm.max(
                 0.0, tm.pow(tm.dot(w_r, w_i), alpha)
             )
