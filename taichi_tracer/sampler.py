@@ -65,17 +65,20 @@ class BRDF:
             tm.vec3([w_x, w_y, w_z])
         )  # local direction in canonical orientation
 
-        # rotate local direction into world coord sys at shade point
-        tangent = tm.normalize(tm.cross(w_o, normal))
-        if tangent.norm() < 1e-7:  # if normal almost vertical, choose another
-            tangent = tm.normalize(tm.cross(tm.vec3(1.0, 0.0, 0.0), normal))
-        bitangent = tm.normalize(tm.cross(normal, tangent))
-        world_dir = (
-            local_dir.x * tangent + local_dir.y * bitangent + local_dir.z * normal
-        )
+        # get axis of alignment according to material.Ns (diffuse or specular)
+        axis_of_alignment = tm.vec3(0.0)
+        if material.Ns == 1:  # if brdf diffuse, aligned about n
+            axis_of_alignment = normal
+        elif material.Ns > 1:  # if brdf phong, aligned about w_r
+            axis_of_alignment = tm.normalize((2 * (tm.dot(normal, w_o)) * normal) - w_o)
+
+        # rotate local direction into world coord sys
+        # cos lobe or cos-pow lobe aligned about the axis of alignment
+        ortho = ortho_frames(axis_of_alignment)
+        world_dir = tm.normalize(ortho @ local_dir)
 
         # return sampled ray direction
-        return tm.normalize(world_dir)
+        return world_dir
 
     @staticmethod
     @ti.func
@@ -131,7 +134,19 @@ class BRDF:
     def evaluate_brdf_factor(
         material: Material, w_o: tm.vec3, w_i: tm.vec3, normal: tm.vec3
     ) -> tm.vec3:
-        pass
+
+        # get diffuse color and specular coefficient from the material
+        alpha = material.Ns  # phong exponent / specular coefficient
+        rho = material.Kd  # reflectance (r,g,b) / diffuse color
+
+        # compute the BRDF factor
+        brdf_factor = tm.vec3(0.0)
+        if alpha == 1:  # if brdf diffuse
+            brdf_factor = rho
+        elif alpha > 1:  # if brdf phong
+            brdf_factor = rho * tm.max(tm.dot(normal, w_i), 0.0)
+
+        return brdf_factor
 
 
 # Microfacet BRDF based on PBR 4th edition
@@ -210,8 +225,20 @@ class MeshLightSampler:
 
 
 @ti.func
-def ortho_frames(v_z: tm.vec3) -> tm.mat3:
-    pass
+def ortho_frames(axis_of_alignment: tm.vec3) -> tm.mat3:
+    # code from assignment 2 tutorial
+
+    random_vec = tm.normalize(tm.vec3([ti.random(), ti.random(), ti.random()]))
+
+    x_axis = tm.cross(axis_of_alignment, random_vec)
+    x_axis = tm.normalize(x_axis)
+
+    y_axis = tm.cross(x_axis, axis_of_alignment)
+    y_axis = tm.normalize(y_axis)
+
+    ortho_frames = tm.mat3([x_axis, y_axis, axis_of_alignment]).transpose()
+
+    return ortho_frames
 
 
 @ti.func

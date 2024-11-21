@@ -220,10 +220,7 @@ class A2Renderer:
 
     @ti.func
     def shade_ray(self, ray: Ray) -> tm.vec3:
-        """
-        You can change the structure of the shade ray function however you want as there will be computations that are the same for all 3 methods
-        You can have your branching logic anywhere in the code
-        """
+
         # initialize color vector
         color = tm.vec3(0.0)
 
@@ -241,6 +238,9 @@ class A2Renderer:
         # if our ray hits an object
         if hit_data.is_hit:
 
+            # normal: get object surface normal from hit_data
+            normal = hit_data.normal
+
             # w_o: compute direction opposite of eye ray
             w_o = -ray.direction
 
@@ -251,7 +251,7 @@ class A2Renderer:
                 w_i = UniformSampler.sample_direction()
             elif self.sample_mode[None] == int(self.SampleMode.BRDF):
                 # generate brdf importance-sampled ray direction
-                w_i = BRDF.sample_direction(material, w_o, hit_data.normal)
+                w_i = BRDF.sample_direction(material, w_o, normal)
             elif self.sample_mode[None] == int(self.SampleMode.MICROFACET):
                 pass
 
@@ -263,26 +263,34 @@ class A2Renderer:
             # V: perform occlusion check
             V = 1  # visibility function
             shadow_ray = Ray()  # construct shadow ray from the surface to the light
-            shadow_ray.origin = x + (hit_data.normal * self.RAY_OFFSET)  # surface point
+            shadow_ray.origin = x + (normal * self.RAY_OFFSET)  # surface point
             shadow_ray.direction = w_i  # direction from surface to light
             shadow_ray_hit_data = self.scene_data.ray_intersector.query_ray(shadow_ray)
             if shadow_ray_hit_data.is_hit:  # if hit, then occluded
                 V = 0
 
-            # f_r: compute the BRDF
-            f_r = BRDF.evaluate_brdf(material, w_o, w_i, hit_data.normal)
-
-            # pdf: evaluate probability
-            pdf = 0.0
+            # uniform importance sampling
             if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
+                # brdf: compute the BRDF
+                brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
+
+                # pdf: evaluate probability
                 pdf = UniformSampler.evaluate_probability()
+
+                # compute color using monte carlo integration
+                color += (L_e * V * brdf * tm.max(tm.dot(normal, w_i), 0.0)) / pdf
+
+            # brdf importance sampling
             elif self.sample_mode[None] == int(self.SampleMode.BRDF):
-                pdf = BRDF.evaluate_probability(material, w_o, w_i, hit_data.normal)
+                # brdf_factor: compute the BRDF factor
+                brdf_factor = BRDF.evaluate_brdf_factor(material, w_o, w_i, normal)
+
+                # compute color using monte carlo integration
+                color += L_e * V * brdf_factor
+
+            # microfacet brdf importance sampling
             elif self.sample_mode[None] == int(self.SampleMode.MICROFACET):
                 pass
-
-            # compute color using monte carlo integration
-            color += (L_e * V * f_r * tm.max(tm.dot(hit_data.normal, w_i), 0.0)) / pdf
 
         # if our ray doesnt hit an object then it's the environment
         else:
