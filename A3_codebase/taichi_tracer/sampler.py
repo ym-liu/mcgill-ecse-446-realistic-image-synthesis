@@ -8,7 +8,7 @@ from .geometry import Geometry
 from .materials import MaterialLibrary, Material
 
 
-# TODO: Implement Uniform Sampling Methods
+# Uniform Sampling Methods
 @ti.data_oriented
 class UniformSampler:
     def __init__(self):
@@ -39,7 +39,7 @@ class UniformSampler:
         return 1.0 / (4.0 * tm.pi)
 
 
-# TODO: Implement BRDF Sampling Methods
+# Implement BRDF Sampling Methods
 @ti.data_oriented
 class BRDF:
     def __init__(self):
@@ -65,17 +65,20 @@ class BRDF:
             tm.vec3([w_x, w_y, w_z])
         )  # local direction in canonical orientation
 
-        # rotate local direction into world coord sys at shade point
-        tangent = tm.normalize(tm.cross(w_o, normal))
-        if tangent.norm() < 1e-7:  # if normal almost vertical, choose another
-            tangent = tm.normalize(tm.cross(tm.vec3(1.0, 0.0, 0.0), normal))
-        bitangent = tm.normalize(tm.cross(normal, tangent))
-        world_dir = (
-            local_dir.x * tangent + local_dir.y * bitangent + local_dir.z * normal
-        )
+        # get axis of alignment according to material.Ns (diffuse or specular)
+        axis_of_alignment = tm.vec3(0.0)
+        if material.Ns == 1:  # if brdf diffuse, aligned about n
+            axis_of_alignment = normal
+        elif material.Ns > 1:  # if brdf phong, aligned about w_r
+            axis_of_alignment = tm.normalize((2 * (tm.dot(normal, w_o)) * normal) - w_o)
+
+        # rotate local direction into world coord sys
+        # cos lobe or cos-pow lobe aligned about the axis of alignment
+        ortho = ortho_frames(axis_of_alignment)
+        world_dir = tm.normalize(ortho @ local_dir)
 
         # return sampled ray direction
-        return tm.normalize(world_dir)
+        return world_dir
 
     @staticmethod
     @ti.func
@@ -131,12 +134,24 @@ class BRDF:
     def evaluate_brdf_factor(
         material: Material, w_o: tm.vec3, w_i: tm.vec3, normal: tm.vec3
     ) -> tm.vec3:
-        pass
+
+        # get diffuse color and specular coefficient from the material
+        alpha = material.Ns  # phong exponent / specular coefficient
+        rho = material.Kd  # reflectance (r,g,b) / diffuse color
+
+        # compute the BRDF factor
+        brdf_factor = tm.vec3(0.0)
+        if alpha == 1:  # if brdf diffuse
+            brdf_factor = rho
+        elif alpha > 1:  # if brdf phong
+            brdf_factor = rho * tm.max(tm.dot(normal, w_i), 0.0)
+
+        return brdf_factor
 
 
 # Microfacet BRDF based on PBR 4th edition
 # https://www.pbr-book.org/4ed/Reflection_Models/Roughness_Using_Microfacet_Theory#
-# TODO: Implement Microfacet BRDF Methods
+# Microfacet BRDF Methods
 # 546 only deliverable
 @ti.data_oriented
 class MicrofacetBRDF:
@@ -225,33 +240,57 @@ class MeshLightSampler:
     @ti.func
     def compute_triangle_area(self, v0: tm.vec3, v1: tm.vec3, v2: tm.vec3) -> float:
         # TODO: Compute Area of a triangle given the 3 vertices
-        #
         # Area of a triangle ABC = 0.5 * | AB cross AC |
-        #
-        #
-        # placholder
-        return 1.0
+        return 0.5 * tm.length(tm.cross(v0 - v1, v0 - v2))
 
     @ti.kernel
     def compute_cdf(self):
         # TODO: Compute the CDF of your emissive triangles
         # self.cdf[i] = ...
-        pass
+
+        # initialize area_sum (cumulative sum of areas)
+        area_sum = 0.0
+
+        # compute cumulative sum (raw cdf) of areas
+        ti.loop_config(serialize=True)  # serialized loop
+        for i in ti.ndrange(self.emissive_triangle_areas.shape[0]):
+            area_sum += self.emissive_triangle_areas[i]
+            self.cdf[i] = area_sum
+
+        # normalize cdf (by dividing by total area)
+        for i in ti.ndrange(self.emissive_triangle_areas.shape[0]):
+            self.cdf[i] /= area_sum
 
     @ti.func
     def sample_emissive_triangle(self) -> int:
         # TODO: Sample an emissive triangle using the CDF
         # return the **index** of the triangle
-        #
-        # placeholder
-        return 0
+
+        # generate random variable between [0,1]
+        rand_var = ti.random()
+
+        # binary search boundaries
+        left = 0
+        right = self.emissive_triangle_areas.shape[0] - 1
+
+        # binary search
+        # find smallest triangle index with self.cdf[index] >= rand_var
+        while left < right:
+            mid = (left + right) // 2
+            if self.cdf[mid] < rand_var:
+                left = mid + 1
+            else:
+                right = mid
+
+        # return index of sampled triangle
+        return left
 
     @ti.func
     def evaluate_probability(self) -> float:
-        # TODO: return the probabilty of a sample
-        #
-        # placeholder
-        return 1.0
+        # TODO: return probability of sampled direction w_i
+        # (converted from a sampled point y_i)
+
+        return 1.0 / self.total_emissive_area[None]
 
     @ti.func
     def sample_mesh_lights(self, hit_point: tm.vec3):
@@ -278,14 +317,44 @@ class MeshLightSampler:
         # light direction = (point on light - hit point)
         # don't forget to normalize!
 
-        # placeholder
-        light_direction = tm.vec3(1.0)
+        # generate 2 canonical random variables with rand_var0 < rand_var1
+        rand_var0 = ti.random()
+        rand_var1 = ti.random()
+        if rand_var0 > rand_var1:  # if rand_var0 > rand_var1, then switch the two
+            tmp = rand_var0
+            rand_var0 = rand_var1
+            rand_var1 = tmp  # rand_var0
+
+        # compute barycentric coordinates b0, b1, b2
+        b0 = rand_var0 / 2.0
+        b1 = rand_var1 - b0
+        b2 = 1.0 - b0 - b1
+
+        # compute sampled surface point y_i
+        y_i = (b0 * v0) + (b1 * v1) + (b2 * v2)
+
+        # compute light direction w_i
+        light_direction = tm.normalize(y_i - hit_point)
+
+        # return light direction and index of sampled triangle
         return light_direction, sampled_light_triangle
 
 
 @ti.func
-def ortho_frames(v_z: tm.vec3) -> tm.mat3:
-    pass
+def ortho_frames(axis_of_alignment: tm.vec3) -> tm.mat3:
+    # code from assignment 2 tutorial
+
+    random_vec = tm.normalize(tm.vec3([ti.random(), ti.random(), ti.random()]))
+
+    x_axis = tm.cross(axis_of_alignment, random_vec)
+    x_axis = tm.normalize(x_axis)
+
+    y_axis = tm.cross(x_axis, axis_of_alignment)
+    y_axis = tm.normalize(y_axis)
+
+    ortho_frames = tm.mat3([x_axis, y_axis, axis_of_alignment]).transpose()
+
+    return ortho_frames
 
 
 @ti.func
