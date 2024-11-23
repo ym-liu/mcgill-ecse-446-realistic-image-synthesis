@@ -237,19 +237,36 @@ class A2Renderer:
             elif self.sample_mode[None] == int(self.SampleMode.MICROFACET):
                 pass
 
-            # L_e: query environment light
+            # initialize:
+            # L_e: environment light
+            # V: visibility function
             L_e = tm.vec3(0.0)
-            reflected_ray = Ray(origin=x, direction=w_i)
-            L_e = self.scene_data.environment.query_ray(reflected_ray)
-
-            # V: perform occlusion check
-            V = 1  # visibility function
-            shadow_ray = Ray()  # construct shadow ray from the surface to the light
+            V = 1
+            # construct shadow ray from the surface to the light
+            shadow_ray = Ray()
             shadow_ray.origin = x + (normal * self.RAY_OFFSET)  # surface point
             shadow_ray.direction = w_i  # direction from surface to light
+            # query shadow ray intersection
             shadow_ray_hit_data = self.scene_data.ray_intersector.query_ray(shadow_ray)
-            if shadow_ray_hit_data.is_hit:  # if hit, then occluded
-                V = 0
+            # if first hit is emissive, then set L_e to emissive colour
+            if material.Ke.x > 0.0 or material.Ke.y > 0.0 or material.Ke.z > 0.0:
+                L_e = material.Ke
+            # if second hit, then check if emissive
+            elif shadow_ray_hit_data.is_hit:
+                # get material emissivity of object hit by shadow ray
+                shadow_ray_hit_material = self.scene_data.material_library.materials[
+                    shadow_ray_hit_data.material_id
+                ]
+                emissivity = shadow_ray_hit_material.Ke
+                # if emmissive, then set L_e to emissive colour
+                if emissivity.x > 0.0 or emissivity.y > 0.0 or emissivity.z > 0.0:
+                    L_e = emissivity
+                # if not emmissive, then occluded
+                else:
+                    V = 0
+            # if no hit, then environment light
+            else:
+                L_e = self.scene_data.environment.query_ray(shadow_ray)
 
             # uniform importance sampling
             if self.sample_mode[None] == int(self.SampleMode.UNIFORM):
