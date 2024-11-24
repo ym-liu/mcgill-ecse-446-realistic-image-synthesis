@@ -209,16 +209,16 @@ class A2Renderer:
         # get hit data from the ray
         hit_data = self.scene_data.ray_intersector.query_ray(ray)
 
-        # get surface-ray intersection from hit_data
-        x = tm.vec3(0.0)  # surface-ray intersection
-        if hit_data.is_hit:
-            x = ray.origin + (hit_data.distance * ray.direction)
-
-        # get material from hit_data
-        material = self.scene_data.material_library.materials[hit_data.material_id]
-
         # if our ray hits an object
         if hit_data.is_hit:
+
+            # x: get surface-ray intersection from hit_data
+            x = tm.vec3(0.0)  # surface-ray intersection
+            if hit_data.is_hit:
+                x = ray.origin + (hit_data.distance * ray.direction)
+
+            # material: get object surface material from hit_data
+            material = self.scene_data.material_library.materials[hit_data.material_id]
 
             # normal: get object surface normal from hit_data
             normal = hit_data.normal
@@ -399,6 +399,10 @@ class A3Renderer:
         self.a2_renderer = A2Renderer(
             width=self.width, height=self.height, scene_data=self.scene_data
         )
+        self.mesh_light_sampler = MeshLightSampler(
+            geometry=self.scene_data.geometry,
+            material_library=self.scene_data.material_library,
+        )  # initialize mesh light sampler
 
         self.mis_plight = ti.field(dtype=float, shape=())
         self.mis_pbrdf = ti.field(dtype=float, shape=())
@@ -459,11 +463,110 @@ class A3Renderer:
 
         # TODO: Light and MIS sampling for A3
         else:
-            if self.sample_mode[None] == int(self.SampleMode.LIGHT):
-                # TODO: Implement Light Importance Sampling
-                pass
-            if self.sample_mode[None] == int(self.SampleMode.MIS):
-                # TODO: Implement MIS
-                pass
+            # get hit data from the ray
+            hit_data = self.scene_data.ray_intersector.query_ray(ray)
+
+            # material: get object surface material from hit_data
+            material = self.scene_data.material_library.materials[hit_data.material_id]
+
+            # if our first ray hits an emissive object,
+            # then set color to emissive color material.Ke
+            if hit_data.is_hit and (
+                material.Ke.x > 0.0 or material.Ke.y > 0.0 or material.Ke.z > 0.0
+            ):
+                color = material.Ke
+
+            # if our first ray hits a non-emissive object
+            elif hit_data.is_hit:
+
+                # x: get surface-ray intersection from hit_data
+                x = tm.vec3(0.0)  # surface-ray intersection
+                if hit_data.is_hit:
+                    x = ray.origin + (hit_data.distance * ray.direction)
+
+                # normal: get object surface normal from hit_data
+                normal = hit_data.normal
+
+                # w_o: compute direction opposite of eye ray
+                w_o = -ray.direction
+
+                # TODO: light importance sampling
+                if self.sample_mode[None] == int(self.SampleMode.LIGHT):
+
+                    # w_i: generate light importance sampled ray direction
+                    w_i, emissive_triangle_id = MeshLightSampler.sample_mesh_lights(
+                        self.mesh_light_sampler, x
+                    )
+
+                    # normal_y_i: compute normal at sampled surface point y_i
+                    emissive_vert_ids = (  # grab vertices of emissive triangle
+                        self.scene_data.geometry.triangle_vertex_ids[
+                            emissive_triangle_id - 1
+                        ]
+                        - 1  # vertices are indexed from 1
+                    )
+                    v0 = self.scene_data.geometry.vertices[emissive_vert_ids[0]]
+                    v1 = self.scene_data.geometry.vertices[emissive_vert_ids[1]]
+                    normal_y_i = tm.normalize(tm.cross(v0, v1))
+
+                    # initialize:
+                    # L_e: environment light
+                    # V: visibility function
+                    L_e = tm.vec3(0.0)
+                    V = 1
+                    # construct shadow ray from the surface to the light
+                    shadow_ray = Ray()
+                    shadow_ray.origin = x + (normal * self.RAY_OFFSET)  # surface point
+                    shadow_ray.direction = w_i  # direction from surface to light
+                    # query shadow ray intersection
+                    shadow_ray_hit_data = self.scene_data.ray_intersector.query_ray(
+                        shadow_ray
+                    )
+                    # if second hit, then check if hit sampled emissive triangle
+                    if shadow_ray_hit_data.is_hit:
+                        # if hit sampled emissive triangle, then set L_e to emissive colour
+                        if shadow_ray_hit_data.triangle_id == emissive_triangle_id:
+                            L_e = (
+                                self.scene_data.material_library.materials[
+                                    shadow_ray_hit_data.material_id
+                                ]
+                            ).Ke
+                        # if not emmissive, then occluded
+                        else:
+                            V = 0
+                    # if no second hit, then environment light
+                    else:
+                        L_e = self.scene_data.environment.query_ray(shadow_ray)
+
+                    # y_i: get emissive surface-ray intersection from shadow_ray_hit_data
+                    y_i = tm.vec3(0.0)  # emissive surface-ray intersection
+                    if shadow_ray_hit_data.is_hit:
+                        y_i = shadow_ray.origin + (
+                            shadow_ray_hit_data.distance * shadow_ray.direction
+                        )  # y_i = origin + (distance * direction)
+
+                    # brdf: compute the BRDF
+                    brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
+
+                    # pdf: evaluate probability
+                    pdf = MeshLightSampler.evaluate_probability(self.mesh_light_sampler)
+
+                    # compute color using monte carlo integration
+                    color += (
+                        L_e
+                        * V
+                        * brdf
+                        * tm.max(tm.dot(normal, w_i), 0.0)
+                        * tm.max(tm.dot(normal_y_i, -w_i), 0.0)
+                    ) / (pdf * tm.pow(tm.length(x - y_i), 2))
+
+                # TODO: MIS
+                elif self.sample_mode[None] == int(self.SampleMode.MIS):
+                    # TODO: generate MIS ray direction
+                    pass
+
+            # if our ray doesnt hit an object then it's the environment
+            else:
+                color = self.scene_data.environment.query_ray(ray)
 
         return color
