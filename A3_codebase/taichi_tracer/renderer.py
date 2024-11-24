@@ -490,8 +490,23 @@ class A3Renderer:
                 # w_o: compute direction opposite of eye ray
                 w_o = -ray.direction
 
-                # TODO: light importance sampling
-                if self.sample_mode[None] == int(self.SampleMode.LIGHT):
+                # rand_var: generate random variable in [0,1]
+                rand_var = ti.random()
+
+                # initalize:
+                # p_light: pdf for light importance sampling
+                # p_brdf: pdf for brdf importance sampling
+                p_light = 0.0
+                p_brdf = 0.0
+
+                """
+                light importance sampling
+                or MIS for the light importance sampling case
+                """
+                if (self.sample_mode[None] == int(self.SampleMode.LIGHT)) or (
+                    self.sample_mode[None] == int(self.SampleMode.MIS)
+                    and rand_var < self.mis_plight[None]
+                ):
 
                     # w_i: generate light importance sampled ray direction
                     w_i, emissive_triangle_id = MeshLightSampler.sample_mesh_lights(
@@ -538,18 +553,13 @@ class A3Renderer:
                     else:
                         L_e = self.scene_data.environment.query_ray(shadow_ray)
 
-                    # y_i: get emissive surface-ray intersection from shadow_ray_hit_data
-                    y_i = tm.vec3(0.0)  # emissive surface-ray intersection
-                    if shadow_ray_hit_data.is_hit:
-                        y_i = shadow_ray.origin + (
-                            shadow_ray_hit_data.distance * shadow_ray.direction
-                        )  # y_i = origin + (distance * direction)
-
                     # brdf: compute the BRDF
                     brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
 
-                    # pdf: evaluate probability
-                    pdf = MeshLightSampler.evaluate_probability(self.mesh_light_sampler)
+                    # p_light: evaluate pdf for light sampling
+                    p_light = MeshLightSampler.evaluate_probability(
+                        self.mesh_light_sampler
+                    )
 
                     # compute color using monte carlo integration
                     color += (
@@ -558,12 +568,84 @@ class A3Renderer:
                         * brdf
                         * tm.max(tm.dot(normal, w_i), 0.0)
                         * tm.max(tm.dot(normal_y_i, -w_i), 0.0)
-                    ) / (pdf * tm.pow(tm.length(x - y_i), 2))
+                    ) / (shadow_ray_hit_data.distance**2.0)
 
-                # TODO: MIS
-                elif self.sample_mode[None] == int(self.SampleMode.MIS):
-                    # TODO: generate MIS ray direction
-                    pass
+                """
+                light importance sampling
+                """
+                if self.sample_mode[None] == int(self.SampleMode.LIGHT):
+                    color /= p_light
+
+                """
+                MIS for the brdf importance sampling case
+                """
+                if (
+                    self.sample_mode[None] == int(self.SampleMode.MIS)
+                    and rand_var >= self.mis_plight[None]
+                ):
+                    # w_i: generate brdf importance-sampled ray direction
+                    w_i = BRDF.sample_direction(material, w_o, normal)
+
+                    # initialize:
+                    # L_e: environment light
+                    # V: visibility function
+                    L_e = tm.vec3(0.0)
+                    V = 1
+                    # construct shadow ray from the surface to the light
+                    shadow_ray = Ray()
+                    shadow_ray.origin = x + (normal * self.RAY_OFFSET)  # surface point
+                    shadow_ray.direction = w_i  # direction from surface to light
+                    # query shadow ray intersection
+                    shadow_ray_hit_data = self.scene_data.ray_intersector.query_ray(
+                        shadow_ray
+                    )
+                    # if first hit is emissive, then set L_e to emissive colour
+                    if (
+                        material.Ke.x > 0.0
+                        or material.Ke.y > 0.0
+                        or material.Ke.z > 0.0
+                    ):
+                        L_e = material.Ke
+                    # if second hit, then check if emissive
+                    elif shadow_ray_hit_data.is_hit:
+                        # get material emissivity of object hit by shadow ray
+                        shadow_ray_hit_material = (
+                            self.scene_data.material_library.materials[
+                                shadow_ray_hit_data.material_id
+                            ]
+                        )
+                        emissivity = shadow_ray_hit_material.Ke
+                        # if emmissive, then set L_e to emissive colour
+                        if (
+                            emissivity.x > 0.0
+                            or emissivity.y > 0.0
+                            or emissivity.z > 0.0
+                        ):
+                            L_e = emissivity
+                        # if not emmissive, then occluded
+                        else:
+                            V = 0
+                    # if no hit, then environment light
+                    else:
+                        L_e = self.scene_data.environment.query_ray(shadow_ray)
+
+                    # brdf: compute the BRDF
+                    brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
+
+                    # p_brdf: evaluate pdf for brdf sampling
+                    p_brdf = BRDF.evaluate_probability(material, w_o, w_i, normal)
+
+                    # compute color using monte carlo integration
+                    color += L_e * V * brdf * tm.max(tm.dot(normal, w_i), 0.0)
+
+                """
+                MIS
+                """
+                if self.sample_mode[None] == int(self.SampleMode.MIS):
+                    p_mis = (
+                        self.mis_plight[None] * p_light + self.mis_pbrdf[None] * p_brdf
+                    )
+                    color /= p_mis
 
             # if our ray doesnt hit an object then it's the environment
             else:
