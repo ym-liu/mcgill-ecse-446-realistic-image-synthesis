@@ -276,16 +276,16 @@ class A2Renderer:
                 # pdf: evaluate probability
                 pdf = UniformSampler.evaluate_probability()
 
-                # compute color using monte carlo integration
-                color += (L_e * V * brdf * tm.max(tm.dot(normal, w_i), 0.0)) / pdf
+                # compute color using rendering equation for direct illumination
+                color = (L_e * V * brdf * tm.max(tm.dot(normal, w_i), 0.0)) / pdf
 
             # brdf importance sampling
             elif self.sample_mode[None] == int(self.SampleMode.BRDF):
                 # brdf_factor: compute the BRDF factor
                 brdf_factor = BRDF.evaluate_brdf_factor(material, w_o, w_i, normal)
 
-                # compute color using monte carlo integration
-                color += L_e * V * brdf_factor
+                # compute color using rendering equation for direct illumination
+                color = L_e * V * brdf_factor
 
             # microfacet brdf importance sampling
             elif self.sample_mode[None] == int(self.SampleMode.MICROFACET):
@@ -493,11 +493,16 @@ class A3Renderer:
                 # rand_var: generate random variable in [0,1]
                 rand_var = ti.random()
 
-                # initalize:
+                # initialize:
                 # p_light: pdf for light importance sampling
                 # p_brdf: pdf for brdf importance sampling
                 p_light = 0.0
                 p_brdf = 0.0
+
+                # initialize:
+                # need to use outside of if-statemnet scope
+                shadow_ray_hit_data = HitData()
+                emissive_triangle_id = -1
 
                 """
                 light importance sampling
@@ -511,6 +516,11 @@ class A3Renderer:
                     # w_i: generate light importance sampled ray direction
                     w_i, emissive_triangle_id = MeshLightSampler.sample_mesh_lights(
                         self.mesh_light_sampler, x
+                    )
+
+                    # p_light: evaluate pdf for light sampling
+                    p_light = MeshLightSampler.evaluate_probability(
+                        self.mesh_light_sampler
                     )
 
                     # normal_y_i: compute normal at sampled surface point y_i
@@ -546,35 +556,35 @@ class A3Renderer:
                                     shadow_ray_hit_data.material_id
                                 ]
                             ).Ke
-                        # if not emmissive, then occluded
+
+                            # brdf: compute the BRDF
+                            brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
+
+                            # compute color using rendering equation for direct illumination
+                            color = (
+                                L_e
+                                * V
+                                * brdf
+                                * tm.max(tm.dot(normal, w_i), 0.0)
+                                * tm.max(tm.dot(normal_y_i, -w_i), 0.0)
+                            ) / (shadow_ray_hit_data.distance**2.0)
+
+                        # if not emmissive, then occluded (V = 0)
                         else:
-                            V = 0
+                            color = tm.vec3(0.0)
                     # if no second hit, then environment light
                     else:
-                        L_e = self.scene_data.environment.query_ray(shadow_ray)
-
-                    # brdf: compute the BRDF
-                    brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
-
-                    # p_light: evaluate pdf for light sampling
-                    p_light = MeshLightSampler.evaluate_probability(
-                        self.mesh_light_sampler
-                    )
-
-                    # compute color using monte carlo integration
-                    color += (
-                        L_e
-                        * V
-                        * brdf
-                        * tm.max(tm.dot(normal, w_i), 0.0)
-                        * tm.max(tm.dot(normal_y_i, -w_i), 0.0)
-                    ) / (shadow_ray_hit_data.distance**2.0)
+                        color = self.scene_data.environment.query_ray(shadow_ray)
 
                 """
                 light importance sampling
                 """
                 if self.sample_mode[None] == int(self.SampleMode.LIGHT):
-                    color /= p_light
+                    if (
+                        shadow_ray_hit_data.is_hit
+                        and shadow_ray_hit_data.triangle_id == emissive_triangle_id
+                    ):
+                        color /= p_light
 
                 """
                 MIS for the brdf importance sampling case
@@ -585,6 +595,12 @@ class A3Renderer:
                 ):
                     # w_i: generate brdf importance-sampled ray direction
                     w_i = BRDF.sample_direction(material, w_o, normal)
+
+                    # p_brdf: evaluate pdf for brdf sampling
+                    p_brdf = BRDF.evaluate_probability(material, w_o, w_i, normal)
+
+                    # brdf: compute the BRDF
+                    brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
 
                     # initialize:
                     # L_e: environment light
@@ -629,14 +645,8 @@ class A3Renderer:
                     else:
                         L_e = self.scene_data.environment.query_ray(shadow_ray)
 
-                    # brdf: compute the BRDF
-                    brdf = BRDF.evaluate_brdf(material, w_o, w_i, normal)
-
-                    # p_brdf: evaluate pdf for brdf sampling
-                    p_brdf = BRDF.evaluate_probability(material, w_o, w_i, normal)
-
-                    # compute color using monte carlo integration
-                    color += L_e * V * brdf * tm.max(tm.dot(normal, w_i), 0.0)
+                    # compute color using rendering equation for direct illumination
+                    color = L_e * V * brdf * tm.max(tm.dot(normal, w_i), 0.0)
 
                 """
                 MIS
