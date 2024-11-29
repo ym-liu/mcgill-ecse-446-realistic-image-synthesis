@@ -6,7 +6,7 @@ import taichi.math as tm
 from .scene_data import SceneData
 from .camera import Camera
 from .ray import Ray, HitData
-from .sampler import UniformSampler, BRDF, MicrofacetBRDF, MeshLightSampler
+from .sampler import UniformSampler, BRDF, MicrofacetBRDF
 from .materials import Material
 
 
@@ -399,10 +399,6 @@ class A3Renderer:
         self.a2_renderer = A2Renderer(
             width=self.width, height=self.height, scene_data=self.scene_data
         )
-        self.mesh_light_sampler = MeshLightSampler(
-            geometry=self.scene_data.geometry,
-            material_library=self.scene_data.material_library,
-        )  # initialize mesh light sampler
 
         self.mis_plight = ti.field(dtype=float, shape=())
         self.mis_pbrdf = ti.field(dtype=float, shape=())
@@ -512,27 +508,14 @@ class A3Renderer:
                     self.sample_mode[None] == int(self.SampleMode.MIS)
                     and rand_var < self.mis_plight[None]
                 ):
+                    # get mesh light sampler
+                    mesh_light_sampler = self.scene_data.mesh_light_sampler
 
                     # w_i: generate light importance sampled ray direction
-                    w_i, emissive_triangle_id = MeshLightSampler.sample_mesh_lights(
-                        self.mesh_light_sampler, x
-                    )
+                    w_i, emissive_triangle_id = mesh_light_sampler.sample_mesh_lights(x)
 
                     # p_light: evaluate pdf for light sampling
-                    p_light = MeshLightSampler.evaluate_probability(
-                        self.mesh_light_sampler
-                    )
-
-                    # normal_y_i: compute normal at sampled surface point y_i
-                    emissive_vert_ids = (  # grab vertices of emissive triangle
-                        self.scene_data.geometry.triangle_vertex_ids[
-                            emissive_triangle_id - 1
-                        ]
-                        - 1  # vertices are indexed from 1
-                    )
-                    v0 = self.scene_data.geometry.vertices[emissive_vert_ids[0]]
-                    v1 = self.scene_data.geometry.vertices[emissive_vert_ids[1]]
-                    normal_y_i = tm.normalize(tm.cross(v0, v1))
+                    p_light = mesh_light_sampler.evaluate_probability()
 
                     # initialize:
                     # L_e: environment light
@@ -549,8 +532,15 @@ class A3Renderer:
                     )
                     # if second hit, then check if hit sampled emissive triangle
                     if shadow_ray_hit_data.is_hit:
-                        # if hit sampled emissive triangle, then set L_e to emissive colour
-                        if shadow_ray_hit_data.triangle_id == emissive_triangle_id:
+
+                        # if hit sampled emissive triangle frontfacing, then set L_e to emissive colour
+                        if (not shadow_ray_hit_data.is_backfacing) and (
+                            shadow_ray_hit_data.triangle_id == emissive_triangle_id
+                        ):
+                            # normal_y_i: get normal at shadow ray hit point
+                            normal_y_i = shadow_ray_hit_data.normal
+
+                            # L_e: get material emissivity
                             L_e = (
                                 self.scene_data.material_library.materials[
                                     shadow_ray_hit_data.material_id
@@ -569,7 +559,7 @@ class A3Renderer:
                                 * tm.max(tm.dot(normal_y_i, -w_i), 0.0)
                             ) / (shadow_ray_hit_data.distance**2.0)
 
-                        # if not emmissive, then occluded (V = 0)
+                        # if hit different triangle or hit backfacing, then occluded (V = 0)
                         else:
                             color = tm.vec3(0.0)
                     # if no second hit, then environment light
@@ -740,7 +730,6 @@ class A4Renderer:
         color = tm.vec3(0.0)
 
         # TODO A4: Implement Implicit Path Tracing
-        # TODO A4: Implement Specular Caustics Support - ECSE 546 Deliverable
 
         return color
 
