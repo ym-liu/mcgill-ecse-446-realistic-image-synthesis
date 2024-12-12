@@ -746,12 +746,12 @@ class A4Renderer:
             material = self.scene_data.material_library.materials[hit_data.material_id]
 
             """conditions for path construction termination"""
-            if not hit_data.is_hit:  # does not intersect
+            if (not hit_data.is_hit) or hit_data.is_backfacing:  # does not intersect
                 # query environment light
-                L_e = self.scene_data.environment.query_ray(ray)
+                L_env = self.scene_data.environment.query_ray(ray)
 
                 # color = environment light * throughput
-                color = L_e * throughput
+                color = L_env * throughput
                 break  # break loop
 
             if tm.length(material.Ke) > 0.0:  # light source
@@ -894,7 +894,7 @@ class A4Renderer:
             ]
 
             """conditions for path construction termination"""
-            if not imp_data.is_hit:  # does not intersect
+            if (not imp_data.is_hit) or imp_data.is_backfacing:  # does not intersect
                 # query environment light
                 L_e = self.scene_data.environment.query_ray(imp_ray)
 
