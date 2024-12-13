@@ -802,28 +802,40 @@ class A4Renderer:
         # initialize throughput
         throughput = tm.vec3(1.0)
 
-        # get hit data from the ray
-        hit_data = self.scene_data.ray_intersector.query_ray(ray)
-
-        # material: get object surface material from hit_data
-        material = self.scene_data.material_library.materials[hit_data.material_id]
-
-        # normal: get object surface normal from hit_data
-        normal = hit_data.normal
-
-        # x: get surface-ray intersection from hit_data
-        x = tm.vec3(0.0)  # surface-ray intersection
-        if hit_data.is_hit:
-            x = ray.origin + (hit_data.distance * ray.direction)
-
         # iterate for a fixed number of bounces
         ti.loop_config(serialize=True)  # serialized loop
-        for _ in range(self.max_bounces[None] + 1):
+        for _ in range(self.max_bounces[None]):
+
+            # get hit data from the ray
+            hit_data = self.scene_data.ray_intersector.query_ray(ray)
+
+            # material: get object surface material from hit_data
+            material = self.scene_data.material_library.materials[hit_data.material_id]
+
+            """conditions for path construction termination"""
+            if (not hit_data.is_hit) or hit_data.is_backfacing:  # does not intersect
+                # query environment light
+                L_env = self.scene_data.environment.query_ray(ray)
+
+                # color = environment light * throughput
+                color += L_env * throughput
+                break  # break loop
+
+            if tm.length(material.Ke) > 0.0:  # light source
+                # color = emissivity * throughput
+                color += material.Ke * throughput
+                break  # break loop
+
+            """incremental explicit path construction"""
+            # x: get surface-ray intersection from hit_data
+            x = ray.origin + (hit_data.distance * ray.direction)
+
+            # normal: get object surface normal from hit_data
+            normal = hit_data.normal
 
             # w_o: compute direction opposite of eye ray
             w_o = -ray.direction
 
-            """incremental explicit path construction"""
             # w_exp: generate light importance-sampled explicit ray direction
             w_exp, emissive_triangle_id = (
                 self.scene_data.mesh_light_sampler.sample_mesh_lights(x)
@@ -845,6 +857,11 @@ class A4Renderer:
                 # normal_y_i: get normal at shadow ray hit point
                 normal_y_i = exp_data.normal
 
+                # L_e: get material emissivity
+                L_e = (
+                    self.scene_data.material_library.materials[exp_data.material_id]
+                ).Ke
+
                 # brdf: compute the BRDF
                 brdf = BRDF.evaluate_brdf(material, w_o, w_exp, normal)
 
@@ -857,6 +874,7 @@ class A4Renderer:
                 # compute color using rendering equation for direct illumination
                 color += (
                     throughput
+                    * L_e
                     * brdf_factor
                     * tm.max(tm.dot(normal_y_i, -w_exp), 0.0)
                     / (exp_data.distance**2.0)
@@ -894,14 +912,6 @@ class A4Renderer:
             ]
 
             """conditions for path construction termination"""
-            if (not imp_data.is_hit) or imp_data.is_backfacing:  # does not intersect
-                # query environment light
-                L_e = self.scene_data.environment.query_ray(imp_ray)
-
-                # color = environment light * throughput
-                color = L_e * throughput
-                break  # break loop
-
             if tm.length(imp_material.Ke) > 0.0:  # light source
                 # do not add emissivity to color (bc explicit path tracing takes care of it)
                 break  # break loop
